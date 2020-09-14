@@ -33,10 +33,9 @@ incoming requests.
 
 ## Caveats
 
-At the moment, Discourse API clients **must** authenticate by using the
-`api_key` and `api_username` parameters in the **query string** or
-**form-encoded `POST` request body**!  Authentication via **request headers**
-or **JSON body** is not supported by this script yet!
+At the moment, Discourse API clients **must not** send a **JSON body** with
+their requests!  `POST` or `PUT` requests are only supported using
+**form-encoded request bodies**.
 
 If you are using Discourse as an SSO provider via the `/session/sso_provider`
 endpoint, you **must** configure your client to talk to this endpoint directly

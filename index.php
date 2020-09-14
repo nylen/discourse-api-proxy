@@ -86,6 +86,21 @@ function custom_add_param( $arr, $name, $value ) {
 	);
 }
 
+function condense_values( $list ) {
+	$list = array_filter( $list, function( $item ) {
+		return ! empty( $item );
+	} );
+	$list = array_unique( array_values( $list ) );
+	switch ( count( $list ) ) {
+		case 0:
+			return null;
+		case 1:
+			return $list[0];
+		default:
+			serve_400();
+	}
+}
+
 
 ///////////////////////////////////
 // Load and verify configuration //
@@ -93,6 +108,7 @@ function custom_add_param( $arr, $name, $value ) {
 
 $discourse_api_key = null;
 $discourse_url = null;
+$discourse_proxy_debug = false;
 $client_keys = null;
 require __DIR__ . '/config.php';
 
@@ -140,7 +156,8 @@ if ( $url === '/' ) {
 	serve_302();
 }
 
-$api_key = null;
+$api_key_body = null;
+$api_username_body = null;
 if (
 	$_SERVER['REQUEST_METHOD'] === 'POST' ||
 	$_SERVER['REQUEST_METHOD'] === 'PUT'
@@ -151,26 +168,39 @@ if (
 	) {
 		serve_400( 'json_not_supported' );
 	}
-	$body_raw = file_get_contents( 'php://input' );
-	$body_params = custom_parse_str( $body_raw );
-	$api_key = custom_get_param( $body_params, 'api_key' );
-	if ( $api_key ) {
-		$body_params = custom_remove_param( $body_params, 'api_key' );
+	$req_body_raw = file_get_contents( 'php://input' );
+	$req_body_params = custom_parse_str( $req_body_raw );
+	$api_key_body = custom_get_param( $req_body_params, 'api_key' );
+	if ( $api_key_body ) {
+		$req_body_params = custom_remove_param( $req_body_params, 'api_key' );
+	}
+	$api_username_body = custom_get_param( $req_body_params, 'api_username' );
+	if ( $api_username_body ) {
+		$req_body_params = custom_remove_param( $req_body_params, 'api_username' );
 	}
 } else if ( $_SERVER['REQUEST_METHOD'] === 'GET' ) {
-	$body_params = [];
+	$req_body_params = [];
 } else {
 	serve_403();
 }
 
-// Note: if `api_key` is present in both query and body parameters, then the
-// body parameter will take precedence
-if ( ! $api_key ) {
-	$api_key = custom_get_param( $query_params, 'api_key' );
-	if ( $api_key ) {
-		$query_params = custom_remove_param( $query_params, 'api_key' );
-	}
+// `api_key` and `api_username` may be set via headers (preferred), query
+// parameters, or body parameters. This code will look in all three locations
+// and then send any values found as HTTP headers. If these values are present
+// in more than one location, and they are different, then the request is
+// invalid.
+$api_key_query = custom_get_param( $query_params, 'api_key' );
+if ( $api_key_query ) {
+	$query_params = custom_remove_param( $query_params, 'api_key' );
 }
+$api_username_query = custom_get_param( $query_params, 'api_username' );
+if ( $api_username_query ) {
+	$query_params = custom_remove_param( $query_params, 'api_username' );
+}
+$api_key_header = $_SERVER['HTTP_API_KEY'] ?? null;
+$api_username_header = $_SERVER['HTTP_API_USERNAME'] ?? null;
+$api_key = condense_values( [ $api_key_header, $api_key_query, $api_key_body ] );
+$api_username = condense_values( [ $api_username_header, $api_username_query, $api_username_body ] );
 
 $endpoint = $_SERVER['REQUEST_METHOD'] . ' ' . $url;
 $ip = $_SERVER['REMOTE_ADDR'];
@@ -203,8 +233,6 @@ if ( ! $ok ) {
 // Forward request to Discourse //
 //////////////////////////////////
 
-$query_params = custom_add_param( $query_params, 'api_key', $discourse_api_key );
-
 $remote_url = (
 	rtrim( $discourse_url, '/' ) . '/' . ltrim( $url, '/' )
 	. '?' . custom_build_query( $query_params )
@@ -212,26 +240,36 @@ $remote_url = (
 // error_log( 'url: ' . $remote_url );
 $ch = curl_init( $remote_url );
 
-$headers = [];
+$req_headers = [];
+if ( $api_key ) {
+	$req_headers[] = 'Api-Key: ' . $discourse_api_key;
+}
+if ( $api_username ) {
+	$req_headers[] = 'Api-Username: ' . $api_username;
+}
 if ( isset( $_SERVER['HTTP_CONTENT_TYPE'] ) ) {
-	$headers[] = 'Content-Type: ' . $_SERVER['HTTP_CONTENT_TYPE'];
+	$req_headers[] = 'Content-Type: ' . $_SERVER['HTTP_CONTENT_TYPE'];
 }
 if ( isset( $_SERVER['HTTP_USER_AGENT'] ) ) {
-	$headers[] = 'User-Agent: ' . $_SERVER['HTTP_USER_AGENT'];
+	$req_headers[] = 'User-Agent: ' . $_SERVER['HTTP_USER_AGENT'];
 }
 if ( isset( $_SERVER['HTTP_ACCEPT'] ) ) {
-	$headers[] = 'Accept: ' . $_SERVER['HTTP_ACCEPT'];
+	$req_headers[] = 'Accept: ' . $_SERVER['HTTP_ACCEPT'];
 }
 if ( isset( $_SERVER['HTTP_REFERER'] ) ) {
-	$headers[] = 'Referer: ' . $_SERVER['HTTP_REFERER'];
+	$req_headers[] = 'Referer: ' . $_SERVER['HTTP_REFERER'];
+}
+
+$req_body = '';
+if ( ! empty( $req_body_params ) ) {
+	$req_body = custom_build_query( $req_body_params );
 }
 
 curl_setopt( $ch, CURLOPT_CUSTOMREQUEST, $_SERVER['REQUEST_METHOD'] );
-curl_setopt( $ch, CURLOPT_HTTPHEADER, $headers );
+curl_setopt( $ch, CURLOPT_HTTPHEADER, $req_headers );
 curl_setopt( $ch, CURLOPT_SAFE_UPLOAD, true );
-if ( ! empty( $body_params ) ) {
-	curl_setopt( $ch, CURLOPT_POSTFIELDS, custom_build_query( $body_params ) );
-	// error_log( 'body: ' . custom_build_query( $body_params ) );
+if ( ! empty( $req_body ) ) {
+	curl_setopt( $ch, CURLOPT_POSTFIELDS, $req_body );
 }
 curl_setopt( $ch, CURLOPT_HEADER, true );
 curl_setopt( $ch, CURLOPT_RETURNTRANSFER, true );
@@ -239,6 +277,8 @@ curl_setopt( $ch, CURLOPT_TIMEOUT, 10 );
 $response = curl_exec( $ch );
 
 $status_code = curl_getinfo( $ch, CURLINFO_HTTP_CODE );
+list( $res_headers, $res_body ) = explode( "\r\n\r\n", $response, 2 );
+
 error_log(
 	'discourse-api-proxy accepted: '
 	. json_encode(
@@ -246,18 +286,25 @@ error_log(
 		JSON_UNESCAPED_SLASHES
 	)
 );
+if ( $discourse_proxy_debug ) {
+	error_log(
+		'discourse-api-proxy debug: '
+		. json_encode(
+			compact( 'req_headers', 'req_body', 'res_headers', 'res_body' ),
+			JSON_UNESCAPED_SLASHES
+		)
+	);
+}
 
-list( $headers, $body ) = explode( "\r\n\r\n", $response, 2 );
-
-foreach ( explode( "\r\n", $headers ) as $header ) {
-	$header_name = strtolower( strtok( $header, ':' ) );
-	switch ( $header_name ) {
+foreach ( explode( "\r\n", $res_headers ) as $res_header ) {
+	$res_header_name = strtolower( strtok( $res_header, ':' ) );
+	switch ( $res_header_name ) {
 		case 'transfer-encoding':
 			// Skip these headers
 			break;
 		default:
-			header( $header );
+			header( $res_header );
 	}
 }
 
-echo $body;
+echo $res_body;

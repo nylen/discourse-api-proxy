@@ -7,6 +7,11 @@ $discourse_api_key = '123def789';
 // forwarded here, authenticated with the master API key.
 $discourse_url = 'https://forums.yoursite.com/';
 
+// Whether to include debug information in the web server's error log. WARNING:
+// this will contain sensitive information such as API keys and request
+// parameters!
+$discourse_proxy_debug = false;
+
 // An array of permitted client configurations.  Array keys are what the client
 // sends to authenticate (keep these secret), and array values describe the IP
 // addresses that are permitted to use each key and the Discourse API endpoints
