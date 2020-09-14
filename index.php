@@ -237,7 +237,6 @@ $remote_url = (
 	rtrim( $discourse_url, '/' ) . '/' . ltrim( $req_url_path, '/' )
 	. '?' . custom_build_query( $query_params )
 );
-// error_log( 'url: ' . $remote_url );
 $ch = curl_init( $remote_url );
 
 $req_headers = [];
@@ -290,7 +289,7 @@ if ( $discourse_proxy_debug ) {
 	error_log(
 		'discourse-api-proxy debug: '
 		. json_encode(
-			compact( 'req_headers', 'req_body', 'res_headers', 'res_body' ),
+			compact( 'req_headers', 'req_body', 'remote_url', 'res_headers', 'res_body' ),
 			JSON_UNESCAPED_SLASHES
 		)
 	);
