@@ -144,15 +144,15 @@ if ( ! function_exists( 'curl_init' ) ) {
 // Parse and verify request //
 //////////////////////////////
 
-$url_parts = explode( '?', $_SERVER['REQUEST_URI'], 2 );
-$url = $url_parts[0];
-if ( empty( $url_parts[1] ) ) {
+$req_url_parts = explode( '?', $_SERVER['REQUEST_URI'], 2 );
+$req_url_path = $req_url_parts[0];
+if ( empty( $req_url_parts[1] ) ) {
 	$query_params = [];
 } else {
-	$query_params = custom_parse_str( $url_parts[1] );
+	$query_params = custom_parse_str( $req_url_parts[1] );
 }
 
-if ( $url === '/' ) {
+if ( $req_url_path === '/' ) {
 	serve_302();
 }
 
@@ -202,7 +202,7 @@ $api_username_header = $_SERVER['HTTP_API_USERNAME'] ?? null;
 $api_key = condense_values( [ $api_key_header, $api_key_query, $api_key_body ] );
 $api_username = condense_values( [ $api_username_header, $api_username_query, $api_username_body ] );
 
-$endpoint = $_SERVER['REQUEST_METHOD'] . ' ' . $url;
+$endpoint = $_SERVER['REQUEST_METHOD'] . ' ' . $req_url_path;
 $ip = $_SERVER['REMOTE_ADDR'];
 
 $ok = false;
@@ -234,7 +234,7 @@ if ( ! $ok ) {
 //////////////////////////////////
 
 $remote_url = (
-	rtrim( $discourse_url, '/' ) . '/' . ltrim( $url, '/' )
+	rtrim( $discourse_url, '/' ) . '/' . ltrim( $req_url_path, '/' )
 	. '?' . custom_build_query( $query_params )
 );
 // error_log( 'url: ' . $remote_url );
