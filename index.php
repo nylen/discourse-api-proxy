@@ -25,12 +25,13 @@ function serve_400( $reason = 'bad_request' ) {
 	die();
 }
 
-function serve_302() {
+function serve_302( $path = '/' ) {
 	global $discourse_url;
+	$url = rtrim( $discourse_url, '/' ) . '/' . ltrim( $path, '/' );
 	header( 'HTTP/1.1 302 Found' );
 	header( 'Content-Type: text/html' );
-	header( 'Location: ' . $discourse_url );
-	echo '<a href="' . htmlspecialchars( $discourse_url ) . '">Redirecting</a>';
+	header( 'Location: ' . $url );
+	echo '<a href="' . htmlspecialchars( $url ) . '">Redirecting</a>';
 	die();
 }
 
@@ -218,6 +219,15 @@ if ( ! empty( $api_key ) && isset( $client_keys[ $api_key ] ) ) {
 }
 
 if ( ! $ok ) {
+	if ( ! $api_key && $_SERVER['REQUEST_METHOD'] === 'GET' ) {
+		// Redirect to Discourse
+		$redirect_url = $req_url_path;
+		if ( ! empty( $query_params ) ) {
+			$redirect_url .= '?' . custom_build_query( $query_params );
+		}
+		serve_302( $redirect_url );
+	}
+
 	error_log(
 		'discourse-api-proxy DENIED: '
 		. json_encode(
